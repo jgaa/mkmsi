@@ -1,10 +1,12 @@
 #/usr/bin/env python3
 
+import argparse
 import json
 import uuid
 import hashlib
 import glob
-import os
+import os, sys
+import subprocess
 import xml.etree.ElementTree
 from xml.etree import ElementTree
 from xml.etree.ElementTree import (
@@ -12,11 +14,43 @@ from xml.etree.ElementTree import (
 )
 from xml.dom import minidom
 
+parser = argparse.ArgumentParser(description='Create a Windows Installer .msi file')
+
+parser.add_argument('project', 
+    help='Name of the project, without file extention')
+parser.add_argument('--auto-create',
+    choices=['simple', 'qt'],
+    help='Create a project-file if required (Required extra arguments should be present)')
+parser.add_argument('--project-name', help='Project name')
+parser.add_argument('--executable', help='The main .exe file')
+parser.add_argument('--project-version', help='Version of the project (n.n.n)')
+parser.add_argument('--manufacturer', help='Manufacturer of the project (Person or company name)')
+parser.add_argument('--version', help='Version of the project (n.n.n)')
+
+parser.add_argument('--description', help='Description of the application')
+parser.add_argument('--source-dir', help='The root-directory with the files to package')
+parser.add_argument('--icon', help='Name of the icon file to use')
+parser.add_argument('--license', help='The license to use')
+parser.add_argument('--wix-root', help='The location where the WiX toolset is installed')
+args = parser.parse_args()
+if not args.project_name:
+    args.project_name = args.project
+
+project_file = args.project
+wxs_file =  project_file + '.wxs'
+msi_file = project_file + '.msi' 
+wixobj_file = project_file + '.wixobj'
+json_file = project_file + '.json'
+project = {}
+wix_path = ''
+
+for f in [wxs_file, msi_file, wixobj_file]:
+    if os.path.isfile(f):
+        os.remove(f)
+
 extra_components = ['MainExecutable', 'ProgramMenuDir']
 
 def prettify(elem):
-    """Return a pretty-printed XML string for the Element.
-    """
     rough_string = ElementTree.tostring(elem, 'utf-8')
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent='  ')
@@ -102,11 +136,61 @@ def add_dependencies(directory, component):
     for d in project['program']['dependencies']:
         do_add_dependencies(d, directory, component, '')
 
+def bootstrap():
+    print('Bootstrapping project ' + args.project)
+    # General stuff
+    project['program'] = {}
+    project['manufacturer'] = args.manufacturer if args.manufacturer else "jgaa's Fan Club!"
+    project['product'] = args.project_name
+    project['version'] = args.project_version if args.project_version else '1.0.0'
+    project['program']['dir'] = args.source_dir if args.source_dir else os.getcwd()
+    project['program']['name'] = args.project_name
+    # TODO: Try to search for an exe file if the guess is wrong
+    project['program']['binary'] = args.executable if args.executable else args.project_name + '.exe'
+    # TODO: Try to search for an icon file if the guess is wrong. If not found, use the exe
+    project['program']['icon'] = args.icon if args.icon else args.project_name + '.ico'
+    if args.license:
+        project['program']['license'] = args.license
+    project['program']['shortcuts'] = ['startmenu']
+    project['program']['dependencies'] = [{
+        'dir': '.',
+        'pattern': '*.dll',
+        'recurse': 'no'
+    }]
+    if args.wix_root:
+        project['wix'] = {}
+        project['wix']['root-folder'] = args.wix_root
 
-project_file = 'whid-setup'
+    # Add more specifics
+    if args.auto_create == 'qt':
+        # Add everything in subdirs
+        project['program']['dependencies'].append({
+            'dir': '.\\*',
+            'pattern': '*',
+            'preserve-hierarchy': 'yes',
+            'recurse': 'yes'
+        })
+    elif args.auto_create == 'simple':
+            pass
 
-with open(project_file + '.json', 'r') as f:
-    project = json.load(f)
+if os.path.isfile(json_file):
+    with open(json_file, 'r') as f:
+        project = json.load(f)
+elif args.auto_create:
+    bootstrap()
+else:
+    print("No project file '" + json_file + ", and no --auto-create argument specified!")
+    sys.exit(-1)
+
+if args.wix_root:
+    wix_path = args.wix_root
+elif wix in project and 'root-folder' in project['wix']:
+    wix_path = project['wix']['root-folder']
+
+if wix_path and not wix_path.endswith('\\'):
+    wix_path += '\\'
+wix_path += 'bin\\'
+
 
 if not 'id' in project:
     project['id'] = str(uuid.uuid4())
@@ -260,9 +344,27 @@ for id in extra_components:
     })
 
 
-with open(project_file + '.wxs', 'w') as f:
+with open(wxs_file, 'w') as f:
     print(prettify(wix_root))
     f.write(prettify(wix_root))
 
 with open(project_file + '.json', 'w') as f:
      f.write(json.dumps(project, sort_keys=True, indent=4))
+
+
+candle = wix_path + 'candle'
+print('Executing: ' + candle)
+result = subprocess.run([candle, wxs_file])
+if result.returncode != 0:
+    print("Candle.exe failed with error: " + str(result.returncode))
+    sys.exit(-1)
+
+light = wix_path + 'light'
+print('Executing: ' + candle)
+result = subprocess.run([light, wixobj_file])
+if result.returncode != 0:
+    print("Light.exe failed with error: " + str(result.returncode))
+    sys.exit(-1)
+
+
+print("Done")
