@@ -7,6 +7,8 @@ import hashlib
 import glob
 import os, sys
 import subprocess
+from ctypes import windll, POINTER
+from ctypes.wintypes import LPWSTR, DWORD, BOOL
 import xml.etree.ElementTree
 from xml.etree import ElementTree
 from xml.etree.ElementTree import (
@@ -26,12 +28,19 @@ parser.add_argument('--executable', help='The main .exe file')
 parser.add_argument('--project-version', help='Version of the project (n.n.n)')
 parser.add_argument('--manufacturer', help='Manufacturer of the project (Person or company name)')
 parser.add_argument('--version', help='Version of the project (n.n.n)')
-
 parser.add_argument('--description', help='Description of the application')
 parser.add_argument('--source-dir', help='The root-directory with the files to package')
 parser.add_argument('--icon', help='Name of the icon file to use')
-parser.add_argument('--license', help='The license to use')
+parser.add_argument('--add-desktop-shortcut', help='Add a desktop shortcut', action='store_true',)
+parser.add_argument('--license', help='The license to use. This must be a text-file in .rtf format.')
+parser.add_argument('--full-upgrade', 
+    action='store_true',
+    help='Make sure the application is reinstalled if it is previously installed')
 parser.add_argument('--wix-root', help='The location where the WiX toolset is installed')
+parser.add_argument('--wix-ui', help='WiX UI flavor to use', 
+    choices=['WixUI_Mondo', 'WixUI_FeatureTree', 'WixUI_InstallDir', 'WixUI_Minimal', 'WixUI_Advanced'])
+parser.add_argument('--wix-banner', help='Bitmap-file (.bmp) with a banner to show in the installer')
+parser.add_argument('--merge-module',  help='Add a merge module (like a VC runtime)', action='append')
 args = parser.parse_args()
 if not args.project_name:
     args.project_name = args.project
@@ -55,6 +64,44 @@ def prettify(elem):
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent='  ')
 
+SCS_32BIT_BINARY = 0 # A 32-bit Windows-based application
+SCS_64BIT_BINARY = 6 # A 64-bit Windows-based application
+SCS_DOS_BINARY = 1 # An MS-DOS-based application
+SCS_OS216_BINARY = 5 # A 16-bit OS/2-based application
+SCS_PIF_BINARY = 3 # A PIF file that executes an MS-DOS-based application
+SCS_POSIX_BINARY = 4 # A POSIX-based application
+SCS_WOW_BINARY = 2 # A 16-bit Windows-based application
+
+_GetBinaryType = windll.kernel32.GetBinaryTypeW
+_GetBinaryType.argtypes = (LPWSTR, POINTER(DWORD))
+_GetBinaryType.restype = BOOL
+
+# https://stackoverflow.com/questions/1345632/determine-if-an-executable-or-library-is-32-or-64-bits-on-windows
+def get_binary_type(filepath):
+    res = DWORD(0)
+    if _GetBinaryType(filepath, res) == 1:
+        return res.value
+    return None
+
+def add_architecture(path, attr):
+    type = get_binary_type(path)
+    if type == SCS_64BIT_BINARY:
+        attr['ProcessorArchitecture'] = 'x64'
+    elif type == SCS_32BIT_BINARY:
+        attr['ProcessorArchitecture'] = 'x32'
+    return attr
+
+def get_path(spec):
+    if spec[0] == '.': # Relative
+        if spec == '.':
+            return project['program']['dir']
+        if spec.startswith('.\\'):
+            return project['program']['dir'] + '\\' + spec[2:]
+        else:
+            return project['program']['dir'] + '\\' + spec
+    # Absolute
+    return spec    
+
 def get_hash(path):
     hash_md5 = hashlib.md5()
     hash_md5.update(path.encode('utf-8'))
@@ -65,16 +112,7 @@ def do_add_dependencies(dep, directory, component, relpath):
     recurse = 'recurse' in dep and dep['recurse'] == 'yes'
     dir = dep['dir']
     preserve = 'preserve-hierarchy' in dep and  dep['preserve-hierarchy'] == 'yes'
-
-    if dir[0] == '.': # Relative
-        if dir == '.':
-            src_dir = project['program']['dir']
-        elif dir.startswith('.\\'):
-            src_dir = project['program']['dir'] + '\\' + dir[2:]
-        else:
-            src_dir = project['program']['dir'] + '\\' + dir
-    else: # Absolute
-        src_dir = dir
+    src_dir = get_path(dir)
 
     for current_dir in glob.iglob(src_dir):
         if not os.path.isdir(current_dir):
@@ -114,20 +152,21 @@ def do_add_dependencies(dep, directory, component, relpath):
 
                     current_component = SubElement(current_directory, 'Component', {
                         'Id' : component_info['Id'],
-                        'Guid' : component_info['Guid']
+                        'Guid' : component_info['Guid'],
+                        'Win64' : 'yes' if is_64_bit else 'no'
                     })
 
                     extra_components.append(component_info['Id'])
                 else:
                     current_component = component
 
-                SubElement(current_component, 'File', {
+                SubElement(current_component, 'File', add_architecture(src_path, {
                     'Id' : 'File_' + get_hash(src_path),
                     'Name' : file_name,
                     'DiskId' : '1',
                     'Source' :  src_path,
                     'KeyPath' : 'yes' if preserve else 'no'
-                })
+                    }))
 
             if os.path.isdir(src_path) and recurse:
                 do_add_dependencies(dep, directory, component, relpath)
@@ -140,6 +179,7 @@ def bootstrap():
     print('Bootstrapping project ' + args.project)
     # General stuff
     project['program'] = {}
+    project['merge-modules'] = args.merge_module if args.merge_module else []
     project['manufacturer'] = args.manufacturer if args.manufacturer else "jgaa's Fan Club!"
     project['product'] = args.project_name
     project['version'] = args.project_version if args.project_version else '1.0.0'
@@ -157,9 +197,19 @@ def bootstrap():
         'pattern': '*.dll',
         'recurse': 'no'
     }]
+    if args.add_desktop_shortcut:
+        project['program']['shortcuts'].append('desktop')
+    project['wix'] = {}
+    if args.wix_ui:
+        project['wix']['ui'] = args.wix_ui
+    else:
+        project['wix']['ui'] = 'WixUI_InstallDir'
+    
     if args.wix_root:
-        project['wix'] = {}
         project['wix']['root-folder'] = args.wix_root
+
+    if args.wix_banner:
+        project['program']['banner'] = args.wix_banner
 
     # Add more specifics
     if args.auto_create == 'qt':
@@ -184,15 +234,22 @@ else:
 
 if args.wix_root:
     wix_path = args.wix_root
-elif wix in project and 'root-folder' in project['wix']:
+elif 'wix' in project and 'root-folder' in project['wix']:
     wix_path = project['wix']['root-folder']
 
 if wix_path and not wix_path.endswith('\\'):
     wix_path += '\\'
 wix_path += 'bin\\'
 
+# Handle update logic
+# Basically, enforce a full update if the version has changed
+if args.project_version:
+    if project['version'] != args.project_version:
+        args.full_upgrade = True
+        project['version'] = args.project_version
+        print('Resetting product-id')
 
-if not 'id' in project:
+if args.full_upgrade or not 'id' in project:
     project['id'] = str(uuid.uuid4())
 
 if not 'upgrade-code' in project:
@@ -213,6 +270,12 @@ if not 'codepage' in project:
 if not 'version' in project:
     project['version'] = '1.0.0'
 
+exepath = project['program']['dir'] + '\\' + project['program']['binary']
+
+# If the main application is 64 bit, assume that all binaries are 64 bits
+# TODO: Support stand-alone 32 bit binaries as well as separate features(?)
+is_64_bit = get_binary_type(exepath) == SCS_64BIT_BINARY
+
 wix_root = Element('Wix', {'xmlns' : 'http://schemas.microsoft.com/wix/2006/wi'}) 
 
 wix_product = SubElement(wix_root, 'Product', {
@@ -230,11 +293,11 @@ wix_package = SubElement(wix_product, 'Package ', {
     'Manufacturer' : project['manufacturer'],
     'Keywords' : 'Installer',
     'Description' : project['product'] + ' Installer',
-    #'Comments' : '',
     'InstallerVersion': '100',
     'Languages' : project['language'],
     'Compressed' : 'yes',
-    'SummaryCodepage' : project['codepage']
+    'SummaryCodepage' : project['codepage'],
+    'Platform': 'x64' if is_64_bit else 'x32'
 })
 
 SubElement(wix_product, 'Media  ', {
@@ -249,10 +312,9 @@ wix_targetdir = SubElement(wix_product, 'Directory', {
 })
 
 wix_pfdir = SubElement(wix_targetdir, 'Directory', {
-    'Id' : 'ProgramFilesFolder',
+    'Id' :  'ProgramFiles64Folder' if is_64_bit else 'ProgramFilesFolder',
     'Name' : 'PFiles'
 })
-
 
 wix_companydir = SubElement(wix_pfdir, 'Directory', {
     'Id' : 'OrgDir',
@@ -266,18 +328,18 @@ wix_installdir = SubElement(wix_companydir, 'Directory', {
 
 wix_component_main = SubElement(wix_installdir, 'Component ', {
     'Id' : 'MainExecutable',
-    'Guid' : project['component-id']
+    'Guid' : project['component-id'],
+    'Win64' : 'yes' if is_64_bit else 'no'
 })
 
-exepath = project['program']['dir'] + '\\' + project['program']['binary']
-
-wix_executable_file = SubElement(wix_component_main, 'File ', {
+wix_executable_file = SubElement(wix_component_main, 'File ', add_architecture(exepath, {
     'Id' : 'MainExecutableFile',
     'Name' : project['program']['binary'],
     'DiskId' : '1',
     'Source' :  exepath,
-    'KeyPath' : 'yes'
-})
+    'KeyPath' : 'yes',
+    'Vital' : 'yes'
+}))
 
 if 'startmenu' in project['program']['shortcuts']:
     SubElement(wix_executable_file, 'Shortcut ', {
@@ -292,7 +354,7 @@ if 'startmenu' in project['program']['shortcuts']:
 
 if 'desktop' in project['program']['shortcuts']:
     SubElement(wix_executable_file, 'Shortcut ', {
-        'Id' : 'startmenu',
+        'Id' : 'desktopshortcut',
         'Directory' : 'DesktopFolder',
         'Name' : project['product'],
         'WorkingDirectory' : 'INSTALLDIR',
@@ -318,30 +380,141 @@ SubElement(wix_rf_component, 'RemoveFolder', {
     'On' : 'uninstall'
      })
 
-SubElement(wix_rf_component, 'RegistryValue ', {
+SubElement(wix_rf_component, 'RegistryValue', {
     'Root' : 'HKCU',
-    'Key' : 'Software\[Manufacturer]\[ProductName]',
+    'Key' : 'Software\\[Manufacturer]\\[ProductName]',
     'Type' : 'string',
     'Value' : '',
     'KeyPath' : 'yes' 
     })
 
-SubElement(wix_product, 'Icon ', {
+SubElement(wix_product, 'Icon', {
    'Id' :  project['program']['icon'],
    'SourceFile' :  project['program']['dir'] + '\\' + project['program']['icon']
+})
+
+SubElement(wix_targetdir, 'Directory', {
+    'Id' : 'DesktopFolder',
+    'Name' : 'Desktop'
 })
 
 add_dependencies(wix_installdir, wix_component_main)
 
 wix_feature = SubElement(wix_product, 'Feature', {
     'Id' : 'Complete',
-    'Level' : '1'
+    'Level' : '1',
+    'Title' : project['product'],
+    'Description' : 'The complete package.',
+    'Display' : 'expand',
+    'ConfigurableDirectory' : 'INSTALLDIR'
+})
+
+wix_feature_product = SubElement(wix_feature, 'Feature', {
+    'Id' : 'MainProgram',
+    'Level' : '1',
+    'Title' : project['product'],
+    'Description' : 'The application'
 })
 
 for id in extra_components:
-    SubElement(wix_feature, 'ComponentRef', {
+    SubElement(wix_feature_product, 'ComponentRef', {
         'Id' : id
     })
+
+SubElement(wix_product, 'Property', {
+    'Id' : 'WIXUI_INSTALLDIR',
+    'Value' : 'INSTALLDIR'
+    })
+
+
+wix_ui = SubElement(wix_product, 'UI')
+SubElement(wix_ui, 'UIRef', {
+    'Id' : project['wix']['ui']
+    })
+
+SubElement(wix_product, 'UIRef', {
+    'Id' : 'WixUI_ErrorProgressText'
+    })
+
+if project['program']['license']:
+    SubElement(wix_product, 'WixVariable', {
+        'Id' : 'WixUILicenseRtf',
+        'Value' : get_path(project['program']['license'])
+    })
+
+if 'banner' in project['program']:
+    SubElement(wix_product, 'WixVariable', {
+        'Id' : 'WixUIBannerBmp',
+        'Value' : project['program']['banner']
+    })
+
+wix_upgrade = SubElement(wix_product, 'Upgrade', {
+   'Id' :  project['upgrade-code']
+})
+
+SubElement(wix_upgrade, 'UpgradeVersion', {
+    'OnlyDetect' : 'yes',
+    'Property' : 'NEWERFOUND',
+    'Minimum' : project['version'].split('.')[0] + '.0.0',
+    'IncludeMinimum' : 'no'
+})
+
+SubElement(wix_product, 'CustomAction', {
+    'Id' : 'NoDowngrade',
+    'Error' : 'A later version of [ProductName] is already installed.'
+})
+
+SubElement(SubElement(wix_product, 'InstallExecuteSequence'), 'Custom', {
+    'Action' : 'NoDowngrade',
+    'After' : 'FindRelatedProducts'
+}).text='NEWERFOUND'
+
+# Launch
+SubElement(wix_product, 'Property', {
+    'Id' : 'WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT',
+    'Value' : 'Launch ' + project['program']['name']
+})
+
+SubElement(wix_product, 'Property', {
+    'Id' : 'WixShellExecTarget',
+    # Broken!
+    #'Value' : '[#' + project['program']['binary'] + ']'
+    'Value' : '[INSTALLDIR]\\' + project['program']['binary']
+})
+
+SubElement(wix_product, 'CustomAction', {
+    'Id' : 'LaunchApplication',
+    'BinaryKey': 'WixCA',
+    'DllEntry': 'WixShellExec',
+    'Impersonate': 'yes'
+})
+
+SubElement(wix_ui, 'Publish ', {
+    'Dialog' : 'ExitDialog',
+    'Control' : 'Finish',
+    'Event' : 'DoAction',
+    'Value' : 'LaunchApplication'
+}).text = 'WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed'
+
+# End launch
+
+for mm in project['merge-modules']:
+    id = 'Merge_' + get_hash(mm)
+    SubElement(SubElement(wix_product, 'DirectoryRef', {
+            'Id' : 'TARGETDIR'
+            }), 'Merge', {
+        'Id' : id,
+        'SourceFile' : mm,
+        'DiskId' : '1',
+        'Language' : '0'
+    })
+    SubElement(SubElement(wix_feature, 'Feature', {
+        'Id' : id,
+        'Title': "Merge module",
+        'AllowAdvertise' : 'no',
+        'Display' : 'hidden',
+        'Level' : '1'
+        }), 'MergeRef', {'Id' : id})
 
 
 with open(wxs_file, 'w') as f:
@@ -351,7 +524,6 @@ with open(wxs_file, 'w') as f:
 with open(project_file + '.json', 'w') as f:
      f.write(json.dumps(project, sort_keys=True, indent=4))
 
-
 candle = wix_path + 'candle'
 print('Executing: ' + candle)
 result = subprocess.run([candle, wxs_file])
@@ -360,11 +532,10 @@ if result.returncode != 0:
     sys.exit(-1)
 
 light = wix_path + 'light'
-print('Executing: ' + candle)
-result = subprocess.run([light, wixobj_file])
+print('Executing: ' + light)
+result = subprocess.run([light, '-ext', 'WixUIExtension', '-ext', 'WixUtilExtension.dll',  wixobj_file])
 if result.returncode != 0:
     print("Light.exe failed with error: " + str(result.returncode))
     sys.exit(-1)
-
 
 print("Done")
