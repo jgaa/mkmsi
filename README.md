@@ -53,7 +53,6 @@ optional arguments:
                         Version of the project (n.n.n)
   --manufacturer MANUFACTURER
                         Manufacturer of the project (Person or company name)
-  --version VERSION     Version of the project (n.n.n)
   --description DESCRIPTION
                         Description of the application
   --source-dir SOURCE_DIR
