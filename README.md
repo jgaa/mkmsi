@@ -22,5 +22,60 @@ The following command can bootstrap a WiX install for a 64 bit QT 5.10 Desktop a
      whid
 ```
 
+**All options**
+```cmd
+src\mkmsi>.\mkmsi.py -h
+usage: mkmsi.py [-h] [--auto-create {simple,qt}] [--project-name PROJECT_NAME]
+                [--executable EXECUTABLE] [--project-version PROJECT_VERSION]
+                [--manufacturer MANUFACTURER] [--version VERSION]
+                [--description DESCRIPTION] [--source-dir SOURCE_DIR]
+                [--icon ICON] [--add-desktop-shortcut] [--license LICENSE]
+                [--full-upgrade] [--wix-root WIX_ROOT]
+                [--wix-ui {WixUI_Mondo,WixUI_FeatureTree,WixUI_InstallDir,WixUI_Minimal,WixUI_Advanced}]
+                [--wix-banner WIX_BANNER] [--merge-module MERGE_MODULE]
+                project
+
+Create a Windows Installer .msi file
+
+positional arguments:
+  project               Name of the project, without file extention
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --auto-create {simple,qt}
+                        Create a project-file if required (Required extra
+                        arguments should be present)
+  --project-name PROJECT_NAME
+                        Project name
+  --executable EXECUTABLE
+                        The main .exe file
+  --project-version PROJECT_VERSION
+                        Version of the project (n.n.n)
+  --manufacturer MANUFACTURER
+                        Manufacturer of the project (Person or company name)
+  --version VERSION     Version of the project (n.n.n)
+  --description DESCRIPTION
+                        Description of the application
+  --source-dir SOURCE_DIR
+                        The root-directory with the files to package
+  --icon ICON           Name of the icon file to use
+  --add-desktop-shortcut
+                        Add a desktop shortcut
+  --license LICENSE     The license to use. This must be a text-file in .rtf
+                        format.
+  --full-upgrade        Make sure the application is reinstalled if it is
+                        previously installed
+  --wix-root WIX_ROOT   The location where the WiX toolset is installed
+  --wix-ui {WixUI_Mondo,WixUI_FeatureTree,WixUI_InstallDir,WixUI_Minimal,WixUI_Advanced}
+                        WiX UI flavor to use
+  --wix-banner WIX_BANNER
+                        Bitmap-file (.bmp) with a banner to show in the
+                        installer
+  --merge-module MERGE_MODULE
+                        Add a merge module (like a VC runtime)
+```
+
+
 ## Not an example for best practice...
 The code is not pretty, it was written in a rush. I went for ease of use. Everything is in one file, so the script is super-simple to deploy. It has no dependencies, except for Python 3.5 or better. The project files would have looked prettyer in yaml than in javascript. However, pretty was not good enough reason to add a dependency. 
+
