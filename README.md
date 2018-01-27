@@ -23,4 +23,4 @@ The following command can bootstrap a WiX install for a 64 bit QT 5.10 Desktop a
 ```
 
 ## Not an example for best practice...
-The code is not pretty, ity was written in a rush. I went for easy of use. Everything is in one file, so the script is super-simple to deploy. It has no dependencies, except for Python 3.5 or better. The project files would have looked prettyer in yaml than in javascript. However, pretty was not good enough reason to add a dependency. 
+The code is not pretty, it was written in a rush. I went for easy of use. Everything is in one file, so the script is super-simple to deploy. It has no dependencies, except for Python 3.5 or better. The project files would have looked prettyer in yaml than in javascript. However, pretty was not good enough reason to add a dependency. 
