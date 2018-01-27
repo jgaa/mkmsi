@@ -1,7 +1,7 @@
 # mkmsi
 Windows Installer Generator, frontend for the WIX toolset
 
-The script is designed to be run on buld-machines, and automatically include all deliverables. Once bootstrapped, it stores it's configiuration in a json file. It can however also be used to boostrap a WiX project that you later maintain manually.
+The script is designed to be run on build-machines, and to automatically include all deliverables. Once bootstrapped, it stores it's configiuration in a json file. It can however also be used to boostrap a WiX project that you later maintain manually.
 
 The script is written in python3.
 
