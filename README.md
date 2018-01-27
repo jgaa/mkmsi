@@ -13,7 +13,7 @@ The following command can bootstrap a WiX install for a 64 bit QT 5.10 Desktop a
 ```cmd
 .\mkmsi.py ^
     --auto-create qt ^
-    --source-dir "C:\Users\Jarle Aase\src\whid\scripts\dist\windows\whid" ^
+    --source-dir "C:\src\whid\scripts\dist\windows\whid" ^
     --wix-root "C:\Program Files (x86)\WiX Toolset v3.11" ^
     --license licenses\GPL3.rtf ^
     --merge-module "C:\Program Files (x86)\Common Files\Merge Modules\Microsoft_VC140_CRT_x64.msm" ^
