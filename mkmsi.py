@@ -107,10 +107,9 @@ def get_hash(path):
     hash_md5.update(path.encode('utf-8'))
     return hash_md5.hexdigest()
 
-def do_add_dependencies(dep, directory, component, relpath):
+def do_add_dependencies(dep, dir, directory, component, relpath):
     pattern = dep['pattern']
     recurse = 'recurse' in dep and dep['recurse'] == 'yes'
-    dir = dep['dir']
     preserve = 'preserve-hierarchy' in dep and  dep['preserve-hierarchy'] == 'yes'
     src_dir = get_path(dir)
 
@@ -169,11 +168,11 @@ def do_add_dependencies(dep, directory, component, relpath):
                     }))
 
             if os.path.isdir(src_path) and recurse:
-                do_add_dependencies(dep, directory, component, relpath)
+                do_add_dependencies(dep, os.path.basename(src_path), directory, component, current_relpath)
 
 def add_dependencies(directory, component):
     for d in project['program']['dependencies']:
-        do_add_dependencies(d, directory, component, '')
+        do_add_dependencies(d, d['dir'], directory, component, '')
 
 def bootstrap():
     print('Bootstrapping project ' + args.project)
