@@ -88,7 +88,7 @@ def add_architecture(path, attr):
     if type == SCS_64BIT_BINARY:
         attr['ProcessorArchitecture'] = 'x64'
     elif type == SCS_32BIT_BINARY:
-        attr['ProcessorArchitecture'] = 'x32'
+        attr['ProcessorArchitecture'] = 'x86'
     return attr
 
 def get_path(spec):
@@ -296,7 +296,7 @@ wix_package = SubElement(wix_product, 'Package ', {
     'Languages' : project['language'],
     'Compressed' : 'yes',
     'SummaryCodepage' : project['codepage'],
-    'Platform': 'x64' if is_64_bit else 'x32'
+    'Platform': 'x64' if is_64_bit else 'x86'
 })
 
 SubElement(wix_product, 'Media  ', {
